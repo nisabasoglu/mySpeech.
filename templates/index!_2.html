@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Konuşma Metni Dönüştürücü</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <style>
+        .mic-animation { animation: pulse 1.5s infinite; }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        .speech-box {
+        min-height: 400px;
+        height: 400px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+        transition: all 0.3s ease;
+        }
+        #transcription-text[contenteditable="true"]:focus {
+        outline: 2px solid #3b82f6;
+        background: #f0f9ff;
+        }
+        .summary-box {
+            background: #f0f9ff;
+            border: 2px solid #3b82f6;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+    <div class="w-full max-w-3xl">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">mySpeech.</h1>
+            <p class="text-gray-600">Konuşmalarınızı anında metne dönüştürün ve özetleyin</p>
+        </div>
+        <div class="flex">
+            <!-- Main Content Box -->
+            <div class="speech-box bg-white rounded-lg p-6 flex-1 relative border border-gray-100 shadow">
+                <div id="content-area" class="h-full">
+                    <div id="empty-state" class="h-full flex flex-col items-center justify-center">
+                        <div class="w-20 h-20 mb-6 flex items-center justify-center bg-blue-50 text-blue-600 rounded-full">
+                            <i class="ri-mic-line ri-2x"></i>
+                        </div>
+
+                        <p class="text-gray-500 text-center max-w-md">Mikrofon simgesine tıklayarak konuşmaya başlayın</p>
+                    </div>
+                    <div id="recording-state" class="h-full flex-col items-center justify-center hidden">
+                        <div class="flex items-center justify-center h-full">
+                            <div class="text-center">
+                                <div class="w-24 h-24 mb-6 mx-auto flex items-center justify-center bg-blue-50 text-blue-600 rounded-full mic-animation">
+                                    <i class="ri-mic-fill ri-2x"></i>
+                                </div>
+                                <h3 class="text-xl font-medium text-gray-800 mb-2">Konuşun...</h3>
+                                <p class="text-gray-500">Konuşmanız kaydediliyor</p>
+                                <div class="mt-8">
+                                    <button id="stop-recording" class="px-5 py-2 bg-white text-gray-700 rounded-lg border border-gray-100 shadow hover:bg-gray-100 transition-colors">
+                                        Kaydı Durdur
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="text-result" class="h-full overflow-y-auto hidden">
+                        <div id="transcription-text" class="prose max-w-none" contenteditable="true"></div>
+
+                        <!-- Özet Sonucu -->
+                        <div id="summary-result" class="summary-box hidden">
+                            <div class="flex justify-between items-center mb-2">
+                                <h4 class="text-md font-medium text-blue-800">Özetlenmiş Metin</h4>
+                                <div class="flex items-center space-x-2">
+                                    <span id="compression-ratio" class="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded"></span>
+                                    <button id="copy-summary" class="text-blue-600 hover:text-blue-800">
+                                        <i class="ri-copy-line"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="summary-text" class="text-gray-700"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Control Panel -->
+            <div class="ml-4 flex flex-col space-y-4">
+                <button id="mic-btn" class="control-btn w-12 h-12 bg-white rounded-lg shadow flex items-center justify-center text-gray-700 border border-gray-100">
+                    <i class="ri-mic-line ri-lg"></i>
+                </button>
+
+                <button id="summarize-btn" class="control-btn w-12 h-12 bg-white rounded-lg shadow flex items-center justify-center text-gray-700 border border-gray-100">
+                    <i class="ri-file-list-line ri-lg"></i>
+                </button>
+
+                <button id="word-btn" class="control-btn w-12 h-12 bg-white rounded-lg shadow flex items-center justify-center text-gray-700 border border-gray-100">
+                    <i class="ri-file-word-line ri-lg"></i>
+                </button>
+
+                <button id="pdf-btn" class="control-btn w-12 h-12 bg-white rounded-lg shadow flex items-center justify-center text-gray-700 border border-gray-100">
+                    <i class="ri-file-pdf-line ri-lg"></i>
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Özetleme Modal -->
+    <div id="summarize-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg p-6 w-96 max-w-md">
+            <h3 class="text-lg font-semibold mb-4">Özetleme Seçenekleri</h3>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Özetleme Tipi:</label>
+                <select id="summarize-type" class="w-full p-2 border border-gray-300 rounded-md">
+                    <option value="basit">Basit Özetleme</option>
+                    <option value="ai">AI Tabanlı Özetleme</option>
+                </select>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Cümle Sayısı:</label>
+                <input type="number" id="sentence-count" min="1" max="10" value="2" class="w-full p-2 border border-gray-300 rounded-md">
+            </div>
+
+            <div class="flex space-x-3">
+                <button id="apply-summarize" class="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">
+                    Özetle
+                </button>
+                <button id="cancel-summarize" class="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400">
+                    İptal
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const micBtn = document.getElementById('mic-btn');
+            const summarizeBtn = document.getElementById('summarize-btn');
+            const wordBtn = document.getElementById('word-btn');
+            const pdfBtn = document.getElementById('pdf-btn');
+            const stopRecordingBtn = document.getElementById('stop-recording');
+            const emptyState = document.getElementById('empty-state');
+            const recordingState = document.getElementById('recording-state');
+            const textResult = document.getElementById('text-result');
+            const transcriptionText = document.getElementById('transcription-text');
+            const summaryResult = document.getElementById('summary-result');
+            const summaryText = document.getElementById('summary-text');
+            const compressionRatio = document.getElementById('compression-ratio');
+            const copySummaryBtn = document.getElementById('copy-summary');
+
+            // Modal elementleri
+            const summarizeModal = document.getElementById('summarize-modal');
+            const applySummarizeBtn = document.getElementById('apply-summarize');
+            const cancelSummarizeBtn = document.getElementById('cancel-summarize');
+            const summarizeTypeSelect = document.getElementById('summarize-type');
+            const sentenceCountInput = document.getElementById('sentence-count');
+
+            let mediaRecorder;
+            let audioChunks = [];
+            micBtn.addEventListener('click', async function() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = (event) => {
+                        audioChunks.push(event.data);
+                    };
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        const reader = new FileReader();
+                        reader.onload = async () => {
+                            try {
+                                const response = await fetch('/process_audio', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                    },
+                                    body: JSON.stringify({
+                                        audio: reader.result
+                                    })
+                                });
+                                const data = await response.json();
+                                console.log(data);
+                                if (data.success) {
+                                    transcriptionText.innerHTML = `<p>${data.transcription}</p>`;
+
+                                    recordingState.classList.add('hidden');
+                                    textResult.classList.remove('hidden');
+                                    summaryResult.classList.add('hidden'); // Özeti gizle
+                                } else {
+                                    alert('Ses işleme hatası: ' + data.error);
+                                }
+                            } catch (error) {
+                                console.error('Error:', error);
+                                alert('Ses işleme hatası oluştu');
+                            }
+                        };
+                        reader.readAsDataURL(audioBlob);
+                    };
+                    mediaRecorder.start();
+                    emptyState.classList.add('hidden');
+                    recordingState.classList.remove('hidden');
+                    textResult.classList.add('hidden');
+                    micBtn.classList.add('active');
+                } catch (error) {
+                    console.error('Error accessing microphone:', error);
+                    alert('Mikrofona erişim hatası oluştu');
+                }
+            });
+            stopRecordingBtn.addEventListener('click', function() {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                }
+            });
+
+            // Özetleme düğmesine tıklama
+            summarizeBtn.addEventListener('click', async function() {
+                const text = transcriptionText.textContent.trim();
+
+                if (!text) {
+                    alert('Özetlenecek metin bulunamadı.');
+                    return;
+                }
+
+                // Butonu loading durumuna getir
+                const originalContent = summarizeBtn.innerHTML;
+                summarizeBtn.innerHTML = '<div class="loading"></div>';
+                summarizeBtn.disabled = true;
+
+                try {
+                    const response = await fetch('/summarize', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            text: text,
+                            num_sentences: 3  // Yeni parametre
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        // Sadece özetlenmiş metni göster
+                        transcriptionText.innerHTML = `<p>${data.summary}</p>`;
+
+                        // Özet kutusunu gizle
+                        summaryResult.classList.add('hidden');
+
+                        // Başarı mesajı
+                        showNotification('Metin başarıyla özetlendi!', 'success');
+                    } else {
+                        alert('Özetleme hatası: ' + data.error);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Özetleme işlemi sırasında hata oluştu');
+                } finally {
+                    // Butonu normal duruma getir
+                    summarizeBtn.innerHTML = originalContent;
+                    summarizeBtn.disabled = false;
+                }
+            });
+
+            // Özeti kopyalama
+            copySummaryBtn.addEventListener('click', function() {
+                const summaryContent = summaryText.textContent;
+                navigator.clipboard.writeText(summaryContent).then(() => {
+                    showNotification('Özet panoya kopyalandı!', 'success');
+                }).catch(() => {
+                    alert('Kopyalama işlemi başarısız oldu');
+                });
+            });
+
+            // Bildirim gösterme fonksiyonu
+            function showNotification(message, type = 'info') {
+                const notification = document.createElement('div');
+                notification.className = `fixed top-4 right-4 px-4 py-2 rounded-lg text-white z-50 ${
+                    type === 'success' ? 'bg-green-500' : 'bg-blue-500'
+                }`;
+                notification.textContent = message;
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.remove();
+                }, 3000);
+            }
+
+            // Word düğmesine tıklama
+            wordBtn.addEventListener('click', async function() {
+                if (textResult.classList.contains('hidden')) {
+                    alert('Önce bir metin oluşturun.');
+                    return;
+                }
+
+                try {
+                    const text = transcriptionText.textContent;
+                    const response = await fetch('/download/word', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            text: text
+                        })
+                    });
+
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `konusma_metni_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.docx`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        showNotification('Word dosyası indirildi!', 'success');
+                    } else {
+                        const data = await response.json();
+                        alert('Dışa aktarma hatası: ' + data.error);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Dışa aktarma hatası oluştu');
+                }
+            });
+
+            // PDF düğmesine tıklama
+            pdfBtn.addEventListener('click', async function() {
+                if (textResult.classList.contains('hidden')) {
+                    alert('Önce bir metin oluşturun.');
+                    return;
+                }
+
+                try {
+                    const text = transcriptionText.textContent;
+                    const response = await fetch('/download/pdf', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            text: text
+                        })
+                    });
+
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `konusma_metni_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        showNotification('PDF dosyası indirildi!', 'success');
+                    } else {
+                        const data = await response.json();
+                        alert('Dışa aktarma hatası: ' + data.error);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Dışa aktarma hatası oluştu');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
